@@ -27,7 +27,7 @@ description:
        Full install/configuration instructions for the gce* modules can
        be found in the comments of ansible/test/gce_tests.py.
 options:
-  image:
+  image:    
     description:
        - image string to use for the instance
     required: false
@@ -216,7 +216,7 @@ def get_instance_info(inst):
         'name': inst.name,
         'network': netname,
         'private_ip': inst.private_ips[0],
-        'public_ip': inst.public_ips[0],
+        'public_ip': not len(inst.public_ips) == 0 and inst.public_ips[0] or inst.private_ips[0],
         'status': ('status' in inst.extra) and inst.extra['status'] or None,
         'tags': ('tags' in inst.extra) and inst.extra['tags'] or [],
         'zone': ('zone' in inst.extra) and inst.extra['zone'].name or None,
@@ -243,6 +243,7 @@ def create_instances(module, gce, instance_names):
     state = module.params.get('state')
     tags = module.params.get('tags')
     zone = module.params.get('zone')
+    external_ip = module.params.get('external_ip')
 
     new_instances = []
     changed = False
@@ -280,6 +281,9 @@ def create_instances(module, gce, instance_names):
         module.fail_json(msg='Missing required create instance variable',
                 changed=False)
 
+    if isinstance(external_ip, str) and external_ip.lower() == 'none':
+        external_ip = None
+
     for name in instance_names:
         pd = None
         if persistent_boot_disk:
@@ -288,10 +292,11 @@ def create_instances(module, gce, instance_names):
             except ResourceExistsError:
                 pd = gce.ex_get_volume("%s" % name, lc_zone)
         inst = None
+
         try:
             inst = gce.create_node(name, lc_machine_type, lc_image,
                     location=lc_zone, ex_network=network, ex_tags=tags,
-                    ex_metadata=metadata, ex_boot_disk=pd)
+                    ex_metadata=metadata, ex_boot_disk=pd, external_ip=external_ip)
             changed = True
         except ResourceExistsError:
             inst = gce.ex_get_node(name, lc_zone)
@@ -323,6 +328,9 @@ def terminate_instances(module, gce, instance_names, zone_name):
     Returns a dictionary of instance names that were terminated.
 
     """
+
+    destroy_boot_disk = module.params.get('destroy_boot_disk')
+
     changed = False
     terminated_instance_names = []
     for name in instance_names:
@@ -334,7 +342,7 @@ def terminate_instances(module, gce, instance_names, zone_name):
         except Exception, e:
             module.fail_json(msg=unexpected_error_msg(e), changed=False)
         if inst:
-            gce.destroy_node(inst)
+            gce.destroy_node(inst, destroy_boot_disk=destroy_boot_disk)
             terminated_instance_names.append(inst.name)
             changed = True
 
@@ -351,6 +359,7 @@ def main():
             name = dict(),
             network = dict(default='default'),
             persistent_boot_disk = dict(type='bool', default=False),
+            destroy_boot_disk = dict(type='bool', default=False),
             state = dict(choices=['active', 'present', 'absent', 'deleted'],
                     default='present'),
             tags = dict(type='list'),
@@ -358,6 +367,7 @@ def main():
             service_account_email = dict(),
             pem_file = dict(),
             project_id = dict(),
+            external_ip = dict(default='ephemeral'),
         )
     )
 
@@ -370,9 +380,12 @@ def main():
     name = module.params.get('name')
     network = module.params.get('network')
     persistent_boot_disk = module.params.get('persistent_boot_disk')
+    destroy_boot_disk = module.params.get('destroy_boot_disk')
     state = module.params.get('state')
     tags = module.params.get('tags')
     zone = module.params.get('zone')
+    external_ip = module.params.get('external_ip')
+
     changed = False
 
     inames = []
