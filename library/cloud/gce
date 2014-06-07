@@ -162,7 +162,7 @@ EXAMPLES = '''
     - my_awesome_role
     - my_awesome_tasks
 
-- name: Terminate instances
+- name: Terminate instances, including boot disk
   hosts: localhost
   connection: local
   tasks:
@@ -170,6 +170,7 @@ EXAMPLES = '''
       local_action:
         module: gce
         state: 'absent'
+        destroy_boot_disk: true
         instance_names: {{gce.instance_names}}
 
 '''
